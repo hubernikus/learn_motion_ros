@@ -6,6 +6,8 @@ from numpy import pi
 
 import yaml
 
+REALMIN = np.finfo(np.double).tiny
+
 
 class DynamicalSystem():
     def __init__(self):
@@ -15,33 +17,41 @@ class DynamicalSystem():
         return [0,0]
 
     def is_attractor_reached(self):
-        return False
+        return None
 
 
 class LVP_DS(DynamicalSystem):
-    def __init__(self,  A_g, b_g, Mu=[], Priors=[], Sigma=[],file_name=""):
+    def __init__(self,  A_g=[], b_g=[], Mu=[], Priors=[], Sigma=[],filename="", order_type='F'):
+        # order_type for yaml list2matrix-encoding. Use "F" for MATLAB created file.
 
-        if len(file_name):
-            yaml_dict = yaml.load(open('filename'))
+        if len(filename):
+            yaml_dict = yaml.load(open(filename))
 
-            self.Mu = yaml_dict['Mu']
-            self.Priors = yaml_dict['Priors']
-            self.Sigma = yaml_dict['Sigma']
+            self.n_gaussians = int(yaml_dict['K'])
+            self.n_dimensions = int(yaml_dict['M'])
 
-            self.n_gaussians = yaml_dict['K']
-            self.n_dimensions = yaml_dict['M']
+            self.Mu = np.reshape(yaml_dict['Mu'], (self.n_dimensions, self.n_gaussians), order=order_type)
+            self.Priors = np.array(yaml_dict['Priors'])
+            self.Sigma = np.reshape(yaml_dict['Sigma'], (self.n_dimensions, self.n_dimensions, self.n_gaussians), order=order_type)
 
-            self.starting_point_teaching = yaml_dict['x0_all']
+            self.A_g = np.reshape(yaml_dict['A'], (self.n_dimensions, self.n_dimensions, self.n_gaussians), order=order_type)
+            self.b_g = np.reshape(yaml_dict['b'], (self.n_dimensions, self.n_gaussians), order=order_type)
+
+            self.starting_point_teaching = np.reshape(yaml_dict['x0_all'], (self.n_dimensions, self.n_gaussians), order=order_type)
             self.mean_starting_point = np.mean(self.starting_point_teaching, axis=1)
 
             self.attractor = yaml_dict['attractor']
 
             # print("TODO -- import lvpDS from file")
+            # import pdb; pdb.set_trace() # DEBUG
         else:
-            # TODO - check for values
+            # TODO - check values
+            self.A_g = A_g
+            self.b_g = b_g
+
             self.Mu     = Mu
             self.Priors = Priors
-            self.Sigma  = Sigman
+            self.Sigma  = Sigma
 
             # Auxiliary Variables
             self.n_dimensions = np.array(x).shape[0] # 
@@ -50,11 +60,12 @@ class LVP_DS(DynamicalSystem):
             self.mean_starting_point = np.ones((dim))
             self.attractor = np.zeros((dim))
 
-        # Posterior Probabilities per local DS
+            # Posterior Probabilities per local DS
 
 
     def is_attractor_reached(self, x, margin_attr=0.1):
         return np.sqrt((x-self.attractor)**2) < margin_attr 
+
 
     def get_ds(self, x, normalization_type='norm'):
         n_datapoints = np.array(x).shape[1]
@@ -65,17 +76,17 @@ class LVP_DS(DynamicalSystem):
         x_dot = np.zeros((N,M))
         for i in range(np.array(x).shape[1]):
             # Estimate Global Dynamics component as LPV
-            if np.array(b_g).shape[1] > 1:
+            if np.array(self.b_g).shape[1] > 1:
                 f_g = np.zeros((self.n_datapoings, self.n_gaussians))
                 for k in range(self.n_gaussians):
-                    f_g[:,k] = beta_k_x[k,i] * (A_g[:,:,k]*x[:,i] + b_g[:,k])
+                    f_g[:,k] = beta_k_x[k,i] * (self.A_g[:,:,k]*x[:,i] + self.b_g[:,k])
 
                 f_g = np.sum(f_g, axis=1)
-            else
+            else:
                 # Estimate Global Dynamics component as Linear DS
-                f_g = (A_g*x[:,i] + b_g)
+                f_g = (self.A_g*x[:,i] + self.b_g)
 
-            x_dot[:,i] = f_g          
+            x_dot[:,i] = f_g
         return x_dot
 
 
@@ -87,7 +98,7 @@ class LVP_DS(DynamicalSystem):
 
         # Compute probabilities p(x^i|k)
         for k in range(self.n_gaussians):
-            Px_k[k,:] = self.ml_gaussPDF(x, self.Mu[:,k], self.Sigma[:,:,k]) + eps
+            Px_k[k,:] = self.ml_gaussPDF(x, self.Mu[:,k], self.Sigma[:,:,k]) + REALMIN
 
         ### Compute posterior probabilities p(k|x) -- FAST WAY --- ###
         alpha_Px_k = np.tile(self.Priors.T, (1, n_datapoints))*Px_k
@@ -100,7 +111,7 @@ class LVP_DS(DynamicalSystem):
         return Pk_x
 
 
-    def ml_gaussPDF(self, Data):
+    def ml_gaussPDF(self, Data, Mu, Sigma):
         #ML_GAUSSPDF
         # This def computes the Probability Density Def (PDF) of a
         # multivariate Gaussian represented by means and covariance matrix.
@@ -122,16 +133,28 @@ class LVP_DS(DynamicalSystem):
         #      (D x N) - (D x N)
         n_datapoints = np.array(Data).shape[1]
 
-        Mus  = np.tile(self.Mu, (1, n_datapoints))
+        Mus  = np.tile(Mu, (1, n_datapoints))
         Data = (Data - Mus).T
 
         # Data = (N x D)
 
-        realmin = np.finfo(np.double).tiny
 
         # (N x 1)
-        prob = np.sum((Data*LA.inv(self.Sigma)).*Data, axis=1)
-        prob = np.exp(-0.5*prob) / np.sqrt((2*pi)**self.n_dimensions * (np.abs(LA.det(self.Sigma))+realmin)) + realmin
+        prob = np.sum((Data*LA.inv(Sigma))*Data, axis=1)
+        prob = np.exp(-0.5*prob) / np.sqrt((2*pi)**self.n_dimensions * (np.abs(LA.det(Sigma))+REALMIN)) + REALMIN
 
         return prob
+
+
+
+if __name__=="__main__":
+    print("Example simulation")
+
+    import_dir = "/home/lukas/Code/ds-opt/models/"
+    import_file = "record_ft_a_v3_ds0.yml"
+    lvp_ds = []
+    lvp_ds.append(LVP_DS(filename=import_dir+import_file))
+    x = np.array([[1],
+                  [3]])
+    lvp_ds[0].get_ds(x)
 
