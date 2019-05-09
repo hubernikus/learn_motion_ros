@@ -25,14 +25,13 @@ from os import makedirs
 
 # import json
 
-import warnings
 import sys
 import signal
 
 import datetime
 
 # from robot_calbration.src.robot_calbration.recorder import Recorder
-# src.robot_calbration.recorder import Recorder
+# src.robot_calbration.recorder import Recorder``
 # from recorder import Recorder
 
 # import os
@@ -71,6 +70,7 @@ class RecordJointsStates():
         self.count_eeVel = 0
         self.count_eePose = 0
         self.recieved_forceTorque = False
+        
         rospy.Subscriber("/lwr/joint_states", JointState, self.callback_jointState)
         rospy.Subscriber("/lwr/ee_pose", Pose, self.callback_eePose)
         rospy.Subscriber("/lwr/ee_vel", Twist, self.callback_eeVel)
